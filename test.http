@@ -1,0 +1,40 @@
+### Get all tickets
+GET http://localhost:4004/incident/Tickets
+Accept: application/json
+
+### Get single ticket (use ID from above response)
+GET http://localhost:4004/incident/Tickets?$top=1
+Accept: application/json
+
+### Embed all tickets (run this FIRST to enable similarity search)
+POST http://localhost:4004/incident/embedAllTickets
+Content-Type: application/json
+
+{}
+
+### AI Categorization (replace ticketID with actual ID number)
+POST http://localhost:4004/incident/categorizeTicket
+Content-Type: application/json
+
+{
+    "ticketID": 1
+}
+
+### Generate AI Response
+POST http://localhost:4004/incident/generateResponse
+Content-Type: application/json
+
+{
+    "ticketID": 1
+}
+
+### Find Similar Tickets (RAG)
+POST http://localhost:4004/incident/findSimilarTickets
+Content-Type: application/json
+
+{
+    "ticketID": 1
+}
+
+### Open Fiori UI
+# Navigate to: http://localhost:4004/incidents/webapp/index.html

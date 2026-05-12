@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Incident Analyzer</title>
+    <script id="sap-ui-bootstrap"
+        src="https://ui5.sap.com/resources/sap-ui-core.js"
+        data-sap-ui-theme="sap_horizon"
+        data-sap-ui-libs="sap.m, sap.ui.layout, sap.ui.table, sap.ui.core, sap.ui.unified"
+        data-sap-ui-compatVersion="edge"
+        data-sap-ui-async="true"
+        data-sap-ui-flexibilityServices=""
+        data-sap-ui-resourceroots='{}'>
+    </script>
+    <script>
+        const SERVICE_URL = "/incident";
+
+        sap.ui.getCore().attachInit(function () {
+            "use strict";
+
+            // ---- CSRF Token Helper ----
+            let csrfToken = null;
+            async function fetchCsrfToken() {
+                const res = await fetch(SERVICE_URL + "/Tickets?$top=0", {
+                    method: "GET",
+                    headers: { "x-csrf-token": "fetch" }
+                });
+                csrfToken = res.headers.get("x-csrf-token");
+                return csrfToken;
+            }
+
+            // ---- API Helper ----
+            async function api(path, options = {}) {
+                const res = await fetch(SERVICE_URL + path, {
+                    headers: { "Content-Type": "application/json", ...options.headers },
+                    ...options
+                });
+                return res.json();
+            }
+
+            async function apiPost(path, body = {}) {
+                if (!csrfToken) await fetchCsrfToken();
+                let res = await fetch(SERVICE_URL + path, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "x-csrf-token": csrfToken
+                    },
+                    body: JSON.stringify(body)
+                });
+                if (res.status === 403) {
+                    // Token expired, retry once
+                    await fetchCsrfToken();
+                    res = await fetch(SERVICE_URL + path, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "x-csrf-token": csrfToken
+                        },
+                        body: JSON.stringify(body)
+                    });
+                }
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.error?.message || `Server error (${res.status})`);
+                }
+                return res.json();
+            }
+
+            // ---- Build UI ----
+            const oPage = new sap.m.Page({
+                title: "AI Incident Analyzer",
+                titleLevel: "H1",
+                showHeader: true,
+                enableScrolling: true
+            });
+
+            // -- Toolbar --
+            const oToolbar = new sap.m.Toolbar({
+                content: [
+                    new sap.m.Title({ text: "Support Tickets", level: "H2" }),
+                    new sap.m.ToolbarSpacer(),
+                    new sap.m.Button({
+                        text: "Embed All Tickets",
+                        icon: "sap-icon://machine-learning",
+                        type: "Emphasized",
+                        press: async function () {
+                            sap.ui.core.BusyIndicator.show(0);
+                            try {
+                                const batchSize = 5;
+                                let offset = 0;
+                                let total = null;
+                                let totalEmbedded = 0;
+                                while (true) {
+                                    const data = await apiPost("/embedAllTickets", { offset, limit: batchSize });
+                                    const result = JSON.parse(data.value);
+                                    totalEmbedded += result.embedded;
+                                    total = result.total;
+                                    sap.m.MessageToast.show(`Embedding... ${totalEmbedded}/${total}`);
+                                    offset += batchSize;
+                                    if (offset >= total) break;
+                                    // Wait 4 seconds between batches to respect rate limits
+                                    await new Promise(r => setTimeout(r, 4000));
+                                }
+                                sap.m.MessageToast.show(`Successfully embedded ${totalEmbedded} tickets!`);
+                            } catch (e) {
+                                sap.m.MessageToast.show("Error: " + e.message);
+                            }
+                            sap.ui.core.BusyIndicator.hide();
+                        }
+                    }),
+                    new sap.m.Button({
+                        text: "Refresh",
+                        icon: "sap-icon://refresh",
+                        press: function () { loadTickets(); }
+                    })
+                ]
+            });
+            oPage.addContent(oToolbar);
+
+            // -- Filter Bar --
+            const oFilterBar = new sap.m.Toolbar({
+                content: [
+                    new sap.m.Label({ text: "Priority:" }),
+                    new sap.m.Select("filterPriority", {
+                        items: [
+                            new sap.ui.core.Item({ key: "", text: "All" }),
+                            new sap.ui.core.Item({ key: "Critical", text: "Critical" }),
+                            new sap.ui.core.Item({ key: "High", text: "High" }),
+                            new sap.ui.core.Item({ key: "Medium", text: "Medium" }),
+                            new sap.ui.core.Item({ key: "Low", text: "Low" })
+                        ],
+                        change: function () { loadTickets(); }
+                    }),
+                    new sap.m.Label({ text: "Status:" }),
+                    new sap.m.Select("filterStatus", {
+                        items: [
+                            new sap.ui.core.Item({ key: "", text: "All" }),
+                            new sap.ui.core.Item({ key: "Open", text: "Open" }),
+                            new sap.ui.core.Item({ key: "Pending Customer Response", text: "Pending" }),
+                            new sap.ui.core.Item({ key: "Closed", text: "Closed" })
+                        ],
+                        change: function () { loadTickets(); }
+                    }),
+                    new sap.m.Label({ text: "Type:" }),
+                    new sap.m.Select("filterType", {
+                        items: [
+                            new sap.ui.core.Item({ key: "", text: "All" }),
+                            new sap.ui.core.Item({ key: "Technical issue", text: "Technical" }),
+                            new sap.ui.core.Item({ key: "Billing inquiry", text: "Billing" }),
+                            new sap.ui.core.Item({ key: "Cancellation request", text: "Cancellation" }),
+                            new sap.ui.core.Item({ key: "Product inquiry", text: "Product" }),
+                            new sap.ui.core.Item({ key: "Refund request", text: "Refund" })
+                        ],
+                        change: function () { loadTickets(); }
+                    })
+                ]
+            });
+            oPage.addContent(oFilterBar);
+
+            // -- Ticket List --
+            const oList = new sap.m.List("ticketList", {
+                mode: "SingleSelectMaster",
+                growing: true,
+                growingThreshold: 20,
+                noDataText: "Loading tickets...",
+                itemPress: function (oEvent) {
+                    const ctx = oEvent.getParameter("listItem").getBindingContext("tickets");
+                    if (ctx) showDetail(ctx.getObject());
+                }
+            });
+            oPage.addContent(oList);
+
+            // -- Detail Panel (hidden initially) --
+            const oDetailPanel = new sap.m.Panel("detailPanel", {
+                headerText: "Ticket Details",
+                expandable: true,
+                expanded: false,
+                visible: false
+            });
+            oPage.addContent(oDetailPanel);
+
+            // Shell
+            const oShell = new sap.m.Shell({ app: new sap.m.App({ pages: [oPage] }) });
+            oShell.placeAt("content");
+
+            // ---- Load Tickets ----
+            async function loadTickets() {
+                let filter = "";
+                const priority = sap.ui.getCore().byId("filterPriority").getSelectedKey();
+                const status = sap.ui.getCore().byId("filterStatus").getSelectedKey();
+                const type = sap.ui.getCore().byId("filterType").getSelectedKey();
+
+                const filters = [];
+                if (priority) filters.push("ticketPriority eq '" + priority + "'");
+                if (status) filters.push("ticketStatus eq '" + status + "'");
+                if (type) filters.push("ticketType eq '" + type + "'");
+                if (filters.length > 0) filter = "&$filter=" + filters.join(" and ");
+
+                const data = await api("/Tickets?$orderby=ID asc" + filter);
+                const tickets = data.value || [];
+
+                const oModel = new sap.ui.model.json.JSONModel({ tickets: tickets });
+                oList.setModel(oModel, "tickets");
+
+                oList.bindItems({
+                    path: "tickets>/tickets",
+                    template: new sap.m.ObjectListItem({
+                        type: "Active",
+                        title: "{tickets>ticketSubject}",
+                        number: "{tickets>ticketPriority}",
+                        numberState: {
+                            path: "tickets>ticketPriority",
+                            formatter: function (p) {
+                                if (p === "Critical") return "Error";
+                                if (p === "High") return "Warning";
+                                if (p === "Medium") return "Information";  // Changed from "None" for visibility
+                                return "Success";
+                            }
+                        },
+                        attributes: [
+                            new sap.m.ObjectAttribute({ text: "{tickets>customerName}" }),
+                            new sap.m.ObjectAttribute({ text: "{tickets>productPurchased}" }),
+                            new sap.m.ObjectAttribute({ text: "{tickets>ticketType}" })
+                        ],
+                        firstStatus: new sap.m.ObjectStatus({
+                            text: "{tickets>ticketStatus}",
+                            state: {
+                                path: "tickets>ticketStatus",
+                                formatter: function (s) {
+                                    if (s === "Closed") return "Success";
+                                    if (s === "Open") return "Error";
+                                    return "Warning";
+                                }
+                            }
+                        }),
+                        secondStatus: new sap.m.ObjectStatus({
+                            text: {
+                                path: "tickets>aiUrgency",
+                                formatter: function (u) { return u ? "AI: " + u : ""; }
+                            },
+                            state: {
+                                path: "tickets>aiUrgency",
+                                formatter: function (u) {
+                                    if (u === "Critical") return "Error";
+                                    if (u === "High") return "Warning";
+                                    return "None";
+                                }
+                            }
+                        })
+                    })
+                });
+            }
+
+            // ---- Show Ticket Detail ----
+            function showDetail(ticket) {
+                const panel = sap.ui.getCore().byId("detailPanel");
+                panel.setVisible(true);
+                panel.setExpanded(true);
+                panel.destroyContent();
+
+                panel.setHeaderText("Ticket #" + ticket.ID + ": " + ticket.ticketSubject);
+
+                // Info section
+                const oForm = new sap.ui.layout.form.SimpleForm({
+                    editable: false,
+                    layout: "ResponsiveGridLayout",
+                    columnsL: 2,
+                    columnsM: 1,
+                    content: [
+                        new sap.ui.core.Title({ text: "Customer" }),
+                        new sap.m.Label({ text: "Name" }), new sap.m.Text({ text: ticket.customerName }),
+                        new sap.m.Label({ text: "Email" }), new sap.m.Text({ text: ticket.customerEmail }),
+                        new sap.m.Label({ text: "Age" }), new sap.m.Text({ text: String(ticket.customerAge) }),
+                        new sap.m.Label({ text: "Product" }), new sap.m.Text({ text: ticket.productPurchased }),
+
+                        new sap.ui.core.Title({ text: "Ticket" }),
+                        new sap.m.Label({ text: "Type" }), new sap.m.Text({ text: ticket.ticketType }),
+                        new sap.m.Label({ text: "Status" }), new sap.m.Text({ text: ticket.ticketStatus }),
+                        new sap.m.Label({ text: "Priority" }), new sap.m.Text({ text: ticket.ticketPriority }),
+                        new sap.m.Label({ text: "Channel" }), new sap.m.Text({ text: ticket.ticketChannel }),
+                        new sap.m.Label({ text: "Description" }), new sap.m.Text({ text: ticket.ticketDescription }),
+
+                        new sap.ui.core.Title({ text: "AI Analysis" }),
+                        new sap.m.Label({ text: "AI Category" }), new sap.m.Text("aiCategory", { text: ticket.aiCategory || "Not analyzed yet" }),
+                        new sap.m.Label({ text: "AI Urgency" }), new sap.m.Text("aiUrgency", { text: ticket.aiUrgency || "Not analyzed yet" }),
+                        new sap.m.Label({ text: "AI Summary" }), new sap.m.Text("aiSummary", { text: ticket.aiSummary || "Not analyzed yet" }),
+                        new sap.m.Label({ text: "Suggested Response" }), new sap.m.Text("suggestedResponse", { text: ticket.suggestedResponse || "Not generated yet" }),
+
+                        new sap.ui.core.Title({ text: "Resolution" }),
+                        new sap.m.Label({ text: "Resolution" }), new sap.m.Text({ text: ticket.resolution || "No resolution yet" }),
+                        new sap.m.Label({ text: "Satisfaction" }), new sap.m.RatingIndicator({ value: ticket.customerSatisfaction || 0, maxValue: 5, editable: false })
+                    ]
+                });
+                panel.addContent(oForm);
+
+                // AI Action Buttons
+                const oActionBar = new sap.m.Toolbar({
+                    content: [
+                        new sap.m.Button({
+                            text: "Categorize with AI",
+                            icon: "sap-icon://inspect",
+                            type: "Emphasized",
+                            press: async function () {
+                                sap.ui.core.BusyIndicator.show(0);
+                                try {
+                                    const data = await apiPost("/categorizeTicket", { ticketID: ticket.ID });
+                                    const result = JSON.parse(data.value);
+                                    sap.ui.getCore().byId("aiCategory").setText(result.category);
+                                    sap.ui.getCore().byId("aiUrgency").setText(result.urgency);
+                                    sap.ui.getCore().byId("aiSummary").setText(result.summary);
+                                    sap.m.MessageToast.show("AI categorization complete!");
+                                    loadTickets();
+                                } catch (e) {
+                                    sap.m.MessageToast.show("Error: " + e.message);
+                                }
+                                sap.ui.core.BusyIndicator.hide();
+                            }
+                        }),
+                        new sap.m.Button({
+                            text: "Generate Response",
+                            icon: "sap-icon://email",
+                            type: "Accept",
+                            press: async function () {
+                                sap.ui.core.BusyIndicator.show(0);
+                                try {
+                                    const data = await apiPost("/generateResponse", { ticketID: ticket.ID });
+                                    sap.ui.getCore().byId("suggestedResponse").setText(data.value);
+                                    sap.m.MessageToast.show("Response generated!");
+                                } catch (e) {
+                                    sap.m.MessageToast.show("Error: " + e.message);
+                                }
+                                sap.ui.core.BusyIndicator.hide();
+                            }
+                        }),
+                        new sap.m.Button({
+                            text: "Find Similar Tickets",
+                            icon: "sap-icon://search",
+                            type: "Default",
+                            press: async function () {
+                                sap.ui.core.BusyIndicator.show(0);
+                                try {
+                                    const data = await apiPost("/findSimilarTickets", { ticketID: ticket.ID });
+                                    const similar = JSON.parse(data.value);
+                                    showSimilarDialog(similar);
+                                } catch (e) {
+                                    sap.m.MessageToast.show("Error: " + e.message);
+                                }
+                                sap.ui.core.BusyIndicator.hide();
+                            }
+                        })
+                    ]
+                });
+                panel.addContent(oActionBar);
+
+                // Scroll to detail
+                panel.getDomRef()?.scrollIntoView({ behavior: "smooth" });
+            }
+
+            // ---- Similar Tickets Dialog ----
+            function showSimilarDialog(similar) {
+                const oList = new sap.m.List({
+                    items: similar.map(function (s) {
+                        return new sap.m.ObjectListItem({
+                            title: s.ticketSubject,
+                            number: (s.similarity * 100).toFixed(0) + "% match",
+                            attributes: [
+                                new sap.m.ObjectAttribute({ text: "Status: " + s.ticketStatus }),
+                                new sap.m.ObjectAttribute({ text: s.ticketDescription })
+                            ],
+                            firstStatus: new sap.m.ObjectStatus({
+                                text: s.resolution === "No resolution yet" ? "Unresolved" : "Resolved",
+                                state: s.resolution === "No resolution yet" ? "Warning" : "Success"
+                            })
+                        });
+                    })
+                });
+
+                const oDialog = new sap.m.Dialog({
+                    title: "Similar Tickets (RAG)",
+                    contentWidth: "600px",
+                    content: [oList],
+                    beginButton: new sap.m.Button({
+                        text: "Close",
+                        press: function () { oDialog.close(); oDialog.destroy(); }
+                    })
+                });
+                oDialog.open();
+            }
+
+            // Initial load
+            loadTickets();
+        });
+    </script>
+</head>
+<body class="sapUiBody" id="content"></body>
+</html>

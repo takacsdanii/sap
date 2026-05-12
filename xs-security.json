@@ -1,0 +1,29 @@
+{
+  "xsappname": "incident-analyzer",
+  "tenant-mode": "dedicated",
+  "oauth2-configuration": {
+    "redirect-uris": [
+      "https://12b77746trial-dev-incident-analyzer-app.cfapps.us10-001.hana.ondemand.com/**"
+    ]
+  },
+  "scopes": [
+    {
+      "name": "$XSAPPNAME.admin",
+      "description": "Admin access"
+    }
+  ],
+  "role-templates": [
+    {
+      "name": "IncidentAdmin",
+      "description": "Admin role for Incident Analyzer",
+      "scope-references": ["$XSAPPNAME.admin"]
+    }
+  ],
+  "role-collections": [
+    {
+      "name": "IncidentAnalyzer_Admin",
+      "description": "Admin access to Incident Analyzer",
+      "role-template-references": ["$XSAPPNAME.IncidentAdmin"]
+    }
+  ]
+}

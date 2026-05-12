@@ -1,0 +1,51 @@
+{
+  "name": "incident-analyzer",
+  "version": "1.0.0",
+  "description": "AI-Powered Incident Analyzer with SAP CAP, HANA Vector Engine & Google Gemini",
+  "repository": "",
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@google/generative-ai": "^0.21",
+    "@sap/cds": "^8",
+    "@sap/cds-hana": "^2",
+    "@sap/xssec": "^4",
+    "passport": "^0.7",
+    "dotenv": "^16",
+    "express": "^4"
+  },
+  "devDependencies": {
+    "@sap/cds-dk": "^8",
+    "better-sqlite3": "^12.9.0"
+  },
+  "scripts": {
+    "start": "cds-serve",
+    "watch": "cds watch"
+  },
+  "cds": {
+    "requires": {
+      "db": {
+        "[development]": {
+          "kind": "sqlite",
+          "credentials": {
+            "database": ":memory:"
+          }
+        },
+        "[production]": {
+          "kind": "hana"
+        }
+      },
+      "auth": {
+        "[development]": {
+          "kind": "mocked",
+          "users": {
+            "admin": { "password": "admin", "roles": ["admin"] }
+          }
+        },
+        "[production]": {
+          "kind": "xsuaa"
+        }
+      }
+    }
+  }
+}

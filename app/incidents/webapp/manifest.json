@@ -1,0 +1,94 @@
+{
+    "_version": "1.65.0",
+    "sap.app": {
+        "id": "incidents",
+        "type": "application",
+        "title": "AI Incident Analyzer",
+        "description": "AI-Powered Incident Management",
+        "dataSources": {
+            "mainService": {
+                "uri": "/incident/",
+                "type": "OData",
+                "settings": {
+                    "odataVersion": "4.0"
+                }
+            }
+        }
+    },
+    "sap.ui": {
+        "technology": "UI5",
+        "deviceTypes": {
+            "desktop": true,
+            "tablet": true,
+            "phone": true
+        }
+    },
+    "sap.ui5": {
+        "flexEnabled": false,
+        "dependencies": {
+            "minUI5Version": "1.120.0",
+            "libs": {
+                "sap.ui.core": {},
+                "sap.fe.core": {},
+                "sap.fe.templates": {}
+            }
+        },
+        "models": {
+            "": {
+                "dataSource": "mainService",
+                "preload": true,
+                "settings": {
+                    "operationMode": "Server",
+                    "autoExpandSelect": true,
+                    "earlyRequests": true
+                }
+            }
+        },
+        "routing": {
+            "routes": [
+                {
+                    "pattern": ":?query:",
+                    "name": "TicketsList",
+                    "target": "TicketsList"
+                },
+                {
+                    "pattern": "Tickets({key}):?query:",
+                    "name": "TicketsDetail",
+                    "target": "TicketsDetail"
+                }
+            ],
+            "targets": {
+                "TicketsList": {
+                    "type": "Component",
+                    "id": "TicketsList",
+                    "name": "sap.fe.templates.ListReport",
+                    "options": {
+                        "settings": {
+                            "contextPath": "/Tickets",
+                            "variantManagement": "Page",
+                            "initialLoad": "Enabled",
+                            "navigation": {
+                                "Tickets": {
+                                    "detail": {
+                                        "route": "TicketsDetail"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "TicketsDetail": {
+                    "type": "Component",
+                    "id": "TicketsDetail",
+                    "name": "sap.fe.templates.ObjectPage",
+                    "options": {
+                        "settings": {
+                            "contextPath": "/Tickets",
+                            "editableHeaderContent": false
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
