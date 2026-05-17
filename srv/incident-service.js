@@ -1,20 +1,19 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const cds = require('@sap/cds');
 const aiService = require('./lib/ai-service');
 
 class IncidentService extends cds.ApplicationService {
     async init() {
 
-        // Helper: get DB connection and entity reference (includes embedding field)
         const getDB = async () => {
             const db = await cds.connect.to('db');
-            const Tickets = db.entities('sap.cap.incidents').Tickets;
+            const Tickets = cds.entities('sap.cap.incidents').Tickets;
             return { db, Tickets };
         };
 
-        // 1. AI Categorization — analyzes ticket and sets category, urgency, summary
-        this.on('categorizeTicket', async (req) => {
-            const { ticketID } = req.data;
+        // categorize the selected ticket with Gemini
+        this.on('categorizeTicket', 'Tickets', async (req) => {
+            const ticketID = req.params[0].ID;
             const { db, Tickets } = await getDB();
 
             const ticket = await db.run(SELECT.one.from(Tickets).where({ ID: ticketID }));
@@ -32,18 +31,18 @@ class IncidentService extends cds.ApplicationService {
                 ticketPriority: result.urgency
             }).where({ ID: ticketID }));
 
+            req.info(`Ticket categorized: ${result.category} | Urgency: ${result.urgency}`);
             return JSON.stringify(result);
         });
 
-        // 2. AI Response Generation — creates suggested customer response
-        this.on('generateResponse', async (req) => {
-            const { ticketID } = req.data;
+        // generate a response draft for the customer
+        this.on('generateResponse', 'Tickets', async (req) => {
+            const ticketID = req.params[0].ID;
             const { db, Tickets } = await getDB();
 
             const ticket = await db.run(SELECT.one.from(Tickets).where({ ID: ticketID }));
             if (!ticket) return req.error(404, `Ticket with ID ${ticketID} not found`);
 
-            // Find similar resolved tickets for context (RAG)
             const similarTickets = await this._findSimilar(ticket, 3);
             
             const response = await aiService.generateResponse(ticket, similarTickets);
@@ -52,64 +51,56 @@ class IncidentService extends cds.ApplicationService {
                 suggestedResponse: response
             }).where({ ID: ticketID }));
 
+            req.info('AI response generated and saved to Suggested Response field.');
             return response;
         });
 
-        // 3. Find Similar Tickets — RAG-based similarity search
-        this.on('findSimilarTickets', async (req) => {
-            const { ticketID } = req.data;
+        // find tickets with similar content using embeddings
+        this.on('findSimilarTickets', 'Tickets', async (req) => {
+            const ticketID = req.params[0].ID;
             const { db, Tickets } = await getDB();
 
             const ticket = await db.run(SELECT.one.from(Tickets).where({ ID: ticketID }));
             if (!ticket) return req.error(404, `Ticket with ID ${ticketID} not found`);
 
             const similar = await this._findSimilar(ticket, 5);
+            req.info(`Found ${similar.length} similar ticket(s).`);
             return JSON.stringify(similar);
         });
 
-        // 4. Embed All Tickets — batch operation, processes `limit` tickets starting at `offset`
+        // generate and store embeddings for all tickets
         this.on('embedAllTickets', async (req) => {
-            const offset = req.data.offset || 0;
-            const limit = req.data.limit || 5;
             const { db, Tickets } = await getDB();
 
             const allTickets = await db.run(SELECT.from(Tickets));
-            const total = allTickets.length;
-            const batch = allTickets.slice(offset, offset + limit);
             let count = 0;
 
-            for (const ticket of batch) {
+            for (const ticket of allTickets) {
                 const text = `${ticket.ticketSubject} ${ticket.ticketDescription} ${ticket.resolution || ''}`;
                 const embedding = await aiService.getEmbedding(text);
-                
                 await db.run(UPDATE(Tickets).set({
                     embedding: JSON.stringify(embedding)
                 }).where({ ID: ticket.ID }));
-                
                 count++;
             }
 
-            return JSON.stringify({ embedded: count, offset, total });
+            req.info(`Successfully embedded ${count} of ${allTickets.length} tickets. AI similarity search is now ready.`);
+            return JSON.stringify({ embedded: count, total: allTickets.length });
         });
 
         await super.init();
     }
 
-    /**
-     * Find tickets similar to the given ticket using vector similarity
-     */
-    async _findSimilar(ticket, topK = 3) {
+    async _findSimilar(ticket, limit = 3) {
         const queryText = `${ticket.ticketSubject} ${ticket.ticketDescription}`;
         const queryEmbedding = await aiService.getEmbedding(queryText);
 
         const db = await cds.connect.to('db');
-        const Tickets = db.entities('sap.cap.incidents').Tickets;
+        const Tickets = cds.entities('sap.cap.incidents').Tickets;
         const allTickets = await db.run(SELECT.from(Tickets).where({ ID: { '!=': ticket.ID } }));
 
-        // Filter in JS — avoids CDS parsing issues with curly braces in data
         const ticketsWithEmbeddings = allTickets.filter(t => t.embedding);
 
-        // Calculate similarity scores
         const scored = ticketsWithEmbeddings
             .map(t => {
                 let embedding;
@@ -130,7 +121,7 @@ class IncidentService extends cds.ApplicationService {
             })
             .filter(t => t !== null)
             .sort((a, b) => b.similarity - a.similarity)
-            .slice(0, topK);
+            .slice(0, limit);
 
         return scored;
     }

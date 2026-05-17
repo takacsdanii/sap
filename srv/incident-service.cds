@@ -1,13 +1,16 @@
 using { sap.cap.incidents as my } from '../db/schema';
 
 service IncidentService @(path: '/incident') {
-    
-    entity Tickets as projection on my.Tickets
-        excluding { embedding };
 
-    // AI Actions
-    action categorizeTicket(ticketID: Integer) returns String;
-    action generateResponse(ticketID: Integer) returns String;
-    action findSimilarTickets(ticketID: Integer) returns String;
-    action embedAllTickets(offset: Integer, limit: Integer) returns String;
+    entity Tickets as projection on my.Tickets
+        excluding { embedding }
+        actions {
+            // Bound actions — act on the currently selected/viewed ticket
+            action categorizeTicket()   returns String;
+            action generateResponse()   returns String;
+            action findSimilarTickets() returns String;
+        };
+
+    // Unbound batch action — embeds ALL tickets at once
+    action embedAllTickets() returns String;
 }
