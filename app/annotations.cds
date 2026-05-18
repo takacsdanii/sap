@@ -19,8 +19,19 @@ annotate service.Tickets with @(
             productPurchased
         ],
 
-        // Columns in the table
+        // Action buttons in Object Page header
+        Identification: [
+            { $Type: 'UI.DataFieldForAction', Action: 'IncidentService.categorizeTicket',   Label: 'AI Categorize' },
+            { $Type: 'UI.DataFieldForAction', Action: 'IncidentService.generateResponse',   Label: 'Generate Response' },
+            { $Type: 'UI.DataFieldForAction', Action: 'IncidentService.findSimilarTickets', Label: 'Find Similar' }
+        ],
+
+        // Columns in the table (action buttons appear in the toolbar when a row is selected)
         LineItem: [
+            { $Type: 'UI.DataFieldForAction', Action: 'IncidentService.categorizeTicket',   Label: 'AI Categorize' },
+            { $Type: 'UI.DataFieldForAction', Action: 'IncidentService.generateResponse',   Label: 'Generate Response' },
+            { $Type: 'UI.DataFieldForAction', Action: 'IncidentService.findSimilarTickets', Label: 'Find Similar' },
+            { $Type: 'UI.DataFieldForAction', Action: 'IncidentService.embedAllTickets',    Label: 'Embed All Tickets' },
             { Value: ticketSubject, Label: 'Subject' },
             { Value: customerName, Label: 'Customer' },
             { Value: productPurchased, Label: 'Product' },
